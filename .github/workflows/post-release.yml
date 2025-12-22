@@ -96,21 +96,19 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Release version: $VERSION"
           
-      - name: Create Git Tag
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Verify tag exists
         run: |
           VERSION="${{ steps.validate_version.outputs.version }}"
           TAG_NAME="$VERSION"
-          PR_BODY="${{ steps.get_pr_details.outputs.body }}"
           
-          if git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
-            echo "Tag $TAG_NAME already exists, skipping tag creation"
-          else
-            echo "$PR_BODY" | git tag -a "$TAG_NAME" -F -
-            git push origin "$TAG_NAME"
-            echo "Created and pushed annotated tag: $TAG_NAME"
+          git fetch --tags origin
+          
+          if ! git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
+            echo "Error: Tag $TAG_NAME does not exist. Please run the create-tag workflow first."
+            exit 1
           fi
+          
+          echo "Tag $TAG_NAME found"
           
       - name: Get changelog for release
         id: get_changelog
@@ -171,6 +169,6 @@ jobs:
           echo "- **Release PR:** #${{ steps.extract_pr.outputs.pr_number }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Completed Actions:" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Created annotated Git tag with PR description" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Verified tag exists" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ Created GitHub release with PR description" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ Merged ${{ steps.target_branch.outputs.branch }} back to development" >> $GITHUB_STEP_SUMMARY
