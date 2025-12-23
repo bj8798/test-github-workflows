@@ -22,7 +22,7 @@ on:
 
 jobs:
   create-release:
-    uses: bj8798/workflows-common/.github/workflows/create-release-reusable.yml@main
+    uses: bj8798/workflow-common/.github/workflows/create-release-reusable.yml@main
     with:
       version_bump: ${{ inputs.version_bump }}
       release_date: ${{ inputs.release_date }}
