@@ -1,4 +1,4 @@
-name: Post Release
+name: Create Tag
 
 on:
   workflow_dispatch:
@@ -9,7 +9,7 @@ on:
         type: string
 
 jobs:
-  post-release:
+  create-tag:
     runs-on: ubuntu-latest
     
     steps:
@@ -17,26 +17,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          
-      - name: Determine target branch
-        id: target_branch
-        run: |
-          if git show-ref --verify --quiet refs/remotes/origin/main; then
-            TARGET_BRANCH="main"
-          elif git show-ref --verify --quiet refs/remotes/origin/master; then
-            TARGET_BRANCH="master"
-          else
-            echo "Error: Neither main nor master branch found"
-            exit 1
-          fi
-          echo "branch=$TARGET_BRANCH" >> $GITHUB_OUTPUT
-          echo "Target branch: $TARGET_BRANCH"
-          
-      - name: Checkout target branch
-        run: |
-          TARGET_BRANCH="${{ steps.target_branch.outputs.branch }}"
-          git checkout "$TARGET_BRANCH"
-          git pull origin "$TARGET_BRANCH"
           
       - name: Configure Git
         run: |
@@ -96,81 +76,60 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Release version: $VERSION"
           
+      - name: Checkout release branch
+        run: |
+          BRANCH_NAME="${{ steps.get_pr_details.outputs.branch_name }}"
+          
+          git fetch origin
+          git checkout "$BRANCH_NAME"
+          git pull origin "$BRANCH_NAME"
+          
+          echo "Checked out and updated release branch: $BRANCH_NAME"
+          
       - name: Create Git Tag
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           VERSION="${{ steps.validate_version.outputs.version }}"
           TAG_NAME="$VERSION"
           PR_BODY="${{ steps.get_pr_details.outputs.body }}"
           
           if git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
-            echo "Tag $TAG_NAME already exists, skipping tag creation"
-          else
-            echo "$PR_BODY" | git tag -a "$TAG_NAME" -F -
-            git push origin "$TAG_NAME"
-            echo "Created and pushed annotated tag: $TAG_NAME"
-          fi
-          
-      - name: Get changelog for release
-        id: get_changelog
-        run: |
-          PR_BODY="${{ steps.get_pr_details.outputs.body }}"
-          
-          echo "notes<<EOF" >> $GITHUB_OUTPUT
-          echo "$PR_BODY" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-          
-      - name: Create GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          VERSION="${{ steps.validate_version.outputs.version }}"
-          TAG_NAME="$VERSION"
-          RELEASE_NOTES="${{ steps.get_changelog.outputs.notes }}"
-          
-          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
-            echo "Release $TAG_NAME already exists, skipping release creation"
-          else
-            gh release create "$TAG_NAME" \
-              --title "$VERSION" \
-              --notes "$RELEASE_NOTES"
-            echo "Created GitHub release: $TAG_NAME"
-          fi
-          
-      - name: Merge back to development
-        run: |
-          TARGET_BRANCH="${{ steps.target_branch.outputs.branch }}"
-          
-          git fetch origin development
-          git checkout development
-          
-          echo "Merging $TARGET_BRANCH into development"
-          
-          if git merge origin/$TARGET_BRANCH --no-ff -m "Merge $TARGET_BRANCH into development after release ${{ steps.validate_version.outputs.version }}"; then
-            git push origin development
-            echo "Successfully merged $TARGET_BRANCH back to development"
-          else
-            echo "Merge conflict detected. Please resolve manually."
-            echo "Run the following commands locally:"
-            echo "  git checkout development"
-            echo "  git pull"
-            echo "  git merge $TARGET_BRANCH"
-            echo "  # Resolve conflicts"
-            echo "  git push"
+            echo "Error: Tag $TAG_NAME already exists"
             exit 1
           fi
           
+          echo "$PR_BODY" | git tag "$TAG_NAME" -a -F -
+          echo "Created annotated tag: $TAG_NAME"
+          
+      - name: Show tag details
+        run: |
+          VERSION="${{ steps.validate_version.outputs.version }}"
+          TAG_NAME="$VERSION"
+          
+          echo "Tag details:"
+          git show "$TAG_NAME"
+          
+      - name: Push tag to origin
+        run: |
+          VERSION="${{ steps.validate_version.outputs.version }}"
+          TAG_NAME="$VERSION"
+          
+          git push --tags origin
+          echo "Pushed tag to origin: $TAG_NAME"
+          
       - name: Summary
         run: |
-          echo "## ✅ Post-Release Summary" >> $GITHUB_STEP_SUMMARY
+          echo "## ✅ Tag Creation Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **Version:** ${{ steps.validate_version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Tag:** ${{ steps.validate_version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Target Branch:** ${{ steps.target_branch.outputs.branch }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Release Branch:** ${{ steps.get_pr_details.outputs.branch_name }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Release PR:** #${{ steps.extract_pr.outputs.pr_number }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Completed Actions:" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Checked out release branch" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ Created annotated Git tag with PR description" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Created GitHub release with PR description" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Merged ${{ steps.target_branch.outputs.branch }} back to development" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Pushed tag to origin" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Steps:" >> $GITHUB_STEP_SUMMARY
+          echo "1. Verify the tag was created correctly" >> $GITHUB_STEP_SUMMARY
+          echo "2. Run the post-release workflow to create the GitHub release and merge back to development" >> $GITHUB_STEP_SUMMARY
